@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="pt-br">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Treinos da Mainha — 5 Dias</title>
+		<style>
+			:root{--accent:#0066cc;--bg:#f7f9fc}
+			body{font-family:Segoe UI, Roboto, Arial; margin:0; background:var(--bg); color:#222}
+			header{background:var(--accent); color:white; padding:18px 22px}
+			header h1{margin:0;font-size:20px}
+			.container{max-width:980px;margin:18px auto;padding:12px}
+			/* stacked layout: place each day vertically to reduce visual clutter */
+			.days{display:flex;flex-direction:column;gap:12px}
+			.day{background:white;border-radius:8px;padding:14px;flex:none;width:100%;box-shadow:0 1px 6px rgba(0,0,0,.07)}
+			.day h2{font-size:16px;margin:0 0 8px}
+			.exercise{display:flex;gap:8px;align-items:center;border-top:1px solid #eee;padding:8px 0}
+			.exercise:first-of-type{border-top:0}
+			.exercise input[type=text]{flex:1;padding:8px;border-radius:6px;border:1px solid #ddd}
+			.exercise button{background:var(--accent);color:white;border:0;padding:8px 12px;border-radius:6px;cursor:pointer}
+			.small{font-size:12px;color:#555}
+			.videoWrap{margin-top:10px}
+			.controls{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
+			.btn-secondary{background:#ddd;color:#111}
+			.topRow{display:flex;justify-content:space-between;align-items:center}
+			.help{font-size:13px;color:#333}
+			footer{padding:18px;text-align:center;font-size:13px;color:#444}
+			@media (max-width:800px){.days{flex-direction:column}}
+		</style>
+	</head>
+	<body>
+		<header>
+			<h1>Treinos da Mainha — Semana (Segunda a Sexta)</h1>
+		</header>
+
+		<div class="container">
+			<div class="topRow">
+				<p class="help">Edite o nome dos exercícios e cole o link do vídeo do YouTube ou envie um vídeo local para demonstrar o movimento.</p>
+				<div>
+					<button id="btnSave" class="btn-secondary">Salvar</button>
+					<button id="btnReset">Resetar</button>
+				</div>
+			</div>
+
+			<div id="msg" style="display:none;margin:8px 0;padding:8px;border-radius:6px;"></div>
+
+			<div class="days" id="days"></div>
+
+			<div class="controls">
+				<button id="exportBtn" class="btn-secondary">Exportar JSON</button>
+				<button id="importBtn" class="btn-secondary">Importar JSON</button>
+				<input type="file" id="fileImport" accept="application/json" style="display:none"/>
+			</div>
+		</div>
+
+		<footer>
+			Dica: se não tiver vídeo local, procure por vídeos de execução no YouTube e cole o link do vídeo ao lado do exercício. Mantenha tudo simples e seguro — escolha exercícios confortáveis para ela.
+		</footer>
+
+		<script>
+			// Estrutura padrão de treinos — você pode editar
+			const defaultSchedule = {
+				Segunda: { title: '', exercises: [
+					{name:'Caminhada suave', video:''},
+					{name:'Agachamento (sem peso)', video:''},
+					{name:'Elevação de panturrilha', video:''}
+					]},
+					Terca: { title: '', exercises: [
+					{name:'Alongamento de braços e pescoço', video:''},
+					{name:'Levantamento de quadril (ponte)', video:''},
+					{name:'Marcha no lugar', video:''}
+					]},
+					Quarta: { title: '', exercises: [
+					{name:'Caminhada rápida', video:''},
+					{name:'Flexão de parede', video:''},
+					{name:'Abdução de quadril sentado', video:''}
+					]},
+					Quinta: { title: '', exercises: [
+					{name:'Subida de degrau (baixinho)', video:''},
+					{name:'Rotação de tronco sentado', video:''},
+					{name:'Pular (leve) ou marcha rápida', video:''}
+					]},
+					Sexta: { title: '', exercises: [
+					{name:'Alongamento gentil', video:''},
+					{name:'Exercício de equilíbrio (apoiada)', video:''},
+					{name:'Respiração profunda e relaxamento', video:''}
+					]}
+			}
+
+			const key = 'treinos_da_mae_v1'
+			const daysEl = document.getElementById('days')
+
+			// schedule declarado cedo para evitar referências indefinidas em closures
+			let schedule = {}
+
+			function normalizeSchedule(data){
+				// Support old format where days were arrays: convert to { title:'', exercises: [...] }
+				const out = {}
+				Object.keys(data).forEach(d=>{
+					const v = data[d]
+					if(Array.isArray(v)) out[d] = { title:'', exercises: v }
+					else if(v && v.exercises) out[d] = v
+					else out[d] = { title: (v && v.title) ? v.title : '', exercises: (v && v.exercises) ? v.exercises : [] }
+				})
+				return out
+			}
+
+			function loadSchedule(){
+				const raw = localStorage.getItem(key)
+				if(!raw){
+					localStorage.setItem(key, JSON.stringify(defaultSchedule))
+					return defaultSchedule
+				}
+				try{ 
+					const parsed = JSON.parse(raw)
+					const normalized = normalizeSchedule(parsed)
+					// update localStorage to normalized version once
+					localStorage.setItem(key, JSON.stringify(normalized))
+					return normalized
+				}catch(e){ localStorage.setItem(key, JSON.stringify(defaultSchedule)); return defaultSchedule }
+			}
+
+			function saveSchedule(s){ try{ localStorage.setItem(key, JSON.stringify(s)) }catch(e){ console.error('Erro ao salvar localStorage', e); showMessage('Não foi possível salvar localmente.') } }
+
+			function showMessage(text, isError=true){
+				const el = document.getElementById('msg')
+				if(!el) return
+				if(!text){ el.style.display='none'; el.textContent=''; return }
+				el.style.display='block'
+				el.style.background = isError ? '#ffecec' : '#e6ffed'
+				el.style.color = isError ? '#b00020' : '#064e1b'
+				el.textContent = text
+			}
+
+			function isYouTube(url){ return /youtu/.test(url) }
+
+			function isImageURL(url){
+				if(!url) return false
+				return /\.(gif|jpe?g|png|webp)(\?.*)?$/i.test(url)
+			}
+
+			function youtubeEmbed(url){
+				if(!url) return ''
+				let id = ''
+				const match = url.match(/(?:v=|\/)([0-9A-Za-z_-]{11})/)
+				if(match) id = match[1]
+				if(!id){ const short = url.match(/youtu\.be\/([0-9A-Za-z_-]{11})/); if(short) id=short[1] }
+				if(!id) return ''
+				return `<iframe width="100%" height="220" src="https://www.youtube.com/embed/${id}" frameborder="0" allowfullscreen></iframe>`
+			}
+
+			function createDayCard(dayName, dayObj){
+				// debug: help identify unexpected types at runtime
+				try{ console.log('createDayCard', dayName, dayObj) }catch(e){}
+				const card = document.createElement('div')
+				card.className = 'day'
+				const h = document.createElement('h2'); h.textContent = dayName + (dayObj.title ? ' - ' + dayObj.title : '')
+				try{
+					card.appendChild(h)
+				}catch(e){ console.error('appendChild(h) failed', e, {dayName, dayObj, card}); showMessage('Erro interno ao montar o dia: '+dayName); }
+
+				// Campo para título do treino do dia
+				const titleInput = document.createElement('input')
+				titleInput.type='text'
+				titleInput.value = dayObj.title || ''
+				titleInput.placeholder = 'Título do treino (ex: Costas, ombro e bíceps)'
+				titleInput.style.display = 'block'
+				titleInput.style.margin = '6px 0 10px 0'
+				titleInput.addEventListener('input', ()=>{ schedule[dayName].title = titleInput.value; saveSchedule(schedule); h.textContent = dayName + (titleInput.value ? ' - ' + titleInput.value : '') })
+				try{ card.appendChild(titleInput) }catch(e){ console.error('appendChild(titleInput) failed', e, {dayName, dayObj, card}); }
+
+				(dayObj.exercises || []).forEach((ex, idx)=>{
+					const exRow = document.createElement('div'); exRow.className='exercise'
+
+					const input = document.createElement('input'); input.type='text'; input.value=ex.name || '';
+					input.placeholder='Nome do exercício'
+					  input.addEventListener('input', ()=>{ schedule[dayName].exercises[idx].name = input.value })
+
+					const vid = document.createElement('input'); vid.type='text'; vid.value=ex.video || '';
+					vid.placeholder='Link do vídeo (YouTube) ou vazio';
+					vid.style.width='220px'
+					  vid.addEventListener('input', ()=>{ schedule[dayName].exercises[idx].video = vid.value; renderVideo(); })
+
+					const file = document.createElement('input'); file.type='file'; file.accept='video/*,image/*'; file.title='Enviar vídeo ou imagem local';
+					file.addEventListener('change', (e)=>{
+						const f = e.target.files[0]; if(!f) return;
+						const url = URL.createObjectURL(f);
+						// mark whether the uploaded blob is an image so we render it as <img>
+						if(!schedule[dayName].exercises[idx]) schedule[dayName].exercises[idx] = {name:'', video:''}
+						schedule[dayName].exercises[idx].video = url;
+						schedule[dayName].exercises[idx].videoIsImage = f.type && f.type.startsWith('image/')
+						renderVideo();
+					})
+
+					const vbtn = document.createElement('button'); vbtn.textContent='Ver'; vbtn.title='Mostrar vídeo';
+					vbtn.addEventListener('click', ()=> renderVideo())
+
+					  exRow.appendChild(input);
+					exRow.appendChild(vid);
+					exRow.appendChild(file);
+					exRow.appendChild(vbtn);
+
+					const videoWrap = document.createElement('div'); videoWrap.className='videoWrap';
+					videoWrap.id = `video_${dayName}_${idx}`
+
+											try{ card.appendChild(exRow) }catch(e){ console.error('appendChild(exRow) failed', e, {dayName, dayObj, card}); }
+											try{ card.appendChild(videoWrap) }catch(e){ console.error('appendChild(videoWrap) failed', e, {dayName, dayObj, card}); }
+				})
+
+				// adicionar exercício
+				const addBtn = document.createElement('button')
+				addBtn.textContent = 'Adicionar exercício'
+				addBtn.style.marginTop = '10px'
+				addBtn.addEventListener('click', ()=>{
+					schedule[dayName].exercises.push({name:'Novo exercício', video:''})
+					saveSchedule(schedule)
+					renderAll()
+				})
+				try{ card.appendChild(addBtn) }catch(e){ console.error('appendChild(addBtn) failed', e, {dayName, dayObj, card}); }
+				return card
+			}
+
+			// render
+			schedule = loadSchedule()
+			function renderAll(){
+				daysEl.innerHTML = '';
+				if(!schedule || typeof schedule !== 'object'){
+					showMessage('Agenda de treinos inválida.', true)
+					console.error('Schedule inválido', schedule)
+					return
+				}
+				Object.keys(schedule).forEach(d=>{
+					const dayObj = schedule[d]
+					if(!dayObj || typeof dayObj !== 'object'){
+						console.warn('Ignorando dia inválido:', d, dayObj)
+						return
+					}
+					const card = createDayCard(d, dayObj)
+					if(card && card.nodeType) daysEl.appendChild(card)
+				})
+				renderVideo();
+			}
+
+			function renderVideo(){
+				Object.keys(schedule).forEach(d=>{
+					(schedule[d].exercises || []).forEach((ex, idx)=>{
+						const wrapper = document.getElementById(`video_${d}_${idx}`)
+						if(!wrapper) return
+						const url = ex.video || ''
+							// Images (gif/jpg/png/webp) -> show as <img>
+							if(ex.videoIsImage || isImageURL(url)){
+								wrapper.innerHTML = `<img src="${url}" alt="${ex.name || ''}" style="max-width:100%;height:auto;border-radius:6px;" />`
+							} else if(isYouTube(url)){
+								wrapper.innerHTML = youtubeEmbed(url) || '<div class="small">Link inválido do YouTube</div>'
+							} else if(url && url.startsWith('blob:')){
+								// blob could be video or image; if we didn't mark it as image, try video tag
+								wrapper.innerHTML = `<video width="100%" height="220" controls src="${url}"></video>`
+							} else if(url){
+								// try using html5 for remote urls (video) as a fallback
+								wrapper.innerHTML = `<video width="100%" height="220" controls src="${url}"></video>`
+							} else {
+								wrapper.innerHTML = ''
+							}
+					})
+				})
+			}
+
+			// Setup buttons
+			try{ renderAll(); showMessage('') }catch(e){ console.error(e); showMessage('Erro ao renderizar a página: ' + (e && e.message ? e.message : e)); }
+
+			document.getElementById('btnSave').addEventListener('click', ()=>{
+				saveSchedule(schedule)
+				alert('Treino salvo — agora sua mãe pode abrir essa página e ver as instruções e vídeos.')
+			})
+
+			document.getElementById('btnReset').addEventListener('click', ()=>{
+				if(!confirm('Deseja resetar os treinos para os valores padrões?')) return
+				schedule = JSON.parse(JSON.stringify(defaultSchedule))
+				saveSchedule(schedule)
+				renderAll()
+			})
+
+			// Export / Import
+			document.getElementById('exportBtn').addEventListener('click', ()=>{
+				const blob = new Blob([JSON.stringify(schedule, null, 2)], {type:'application/json'})
+				const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'treino_semana.json'; a.click();
+			})
+			document.getElementById('importBtn').addEventListener('click', ()=>{ document.getElementById('fileImport').click() })
+			document.getElementById('fileImport').addEventListener('change', (e)=>{
+				const f = e.target.files[0]; if(!f) return; const reader = new FileReader();
+				reader.onload = (ev)=>{
+					try{ const data = JSON.parse(ev.target.result); schedule = normalizeSchedule(data); saveSchedule(schedule); renderAll(); alert('Importado com sucesso') }catch(err){ alert('Arquivo inválido') }
+				}
+				reader.readAsText(f)
+			})
+		</script>
+	</body>
+</html>
